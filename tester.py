@@ -4,8 +4,16 @@ import dns.dnssec
 import dns.message
 import dns.resolver
 import dns.rdatatype
+import bloomFilter as bloomFilter
+import time
+import sys
+import random
+
+filter = bloomFilter.BloomFilter(50, false_positive_rate=0.01)
 
 def validate_dnssec(domain_url):
+    if(filter.query(domain_url)):
+        return True
     try:
         # get nameservers for target domain
         response = dns.resolver.resolve(domain_url, dns.rdatatype.NS)
@@ -39,7 +47,7 @@ def validate_dnssec(domain_url):
         #print(answer)
         if len(answer) != 2:
             # SOMETHING WENT WRONG
-            print("Something unexpected happened during the DNS query process")
+            #print("Something unexpected happened during the DNS query process")
             return False
 
         # the DNSKEY should be self-signed, validate it
@@ -47,6 +55,7 @@ def validate_dnssec(domain_url):
         dns.dnssec.validate(answer[0], answer[1], {name: answer[0]})
         
         # If validation succeeds, return True
+        filter.insert(domain_url)
         return True
 
     except dns.resolver.NXDOMAIN:
@@ -58,10 +67,26 @@ def validate_dnssec(domain_url):
     except Exception as e:
         print(f"An unexpected error occurred: {e}")
         return False
+    
+#Experiment Setup:
+valid_domains = ['example.com', 'fedoraproject.org', 'ietf.org', 'openssl.org', 'torproject.org']
+invalid_domains = ['google.com', 'verisign.com', 'amazon.com', 'usa.gov', 'umass.edu', 'chat.openai.com']
+domain_list_to_check = random.choices(valid_domains + invalid_domains, k=30)
 
 # Example usage
-domain_valid = validate_dnssec('fedoraproject.org')
-if domain_valid:
-    print("Domain has valid DNSSEC.")
-else:
-    print("Domain does not have valid DNSSEC.")
+for domain in domain_list_to_check:
+    start_time = time.time()
+    domain_valid = validate_dnssec(domain)
+    if domain_valid:
+        print(f"{domain} ✔")
+    else:
+        print(f"{domain} ✖")
+    
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+
+    print(f"[{elapsed_time:.6f}] seconds")
+
+print(f"Size of the filter: {filter.size} bits")
+print(f"Size saved: {sys.getsizeof(domain_list_to_check)*8 - filter.size} bits")
+        
